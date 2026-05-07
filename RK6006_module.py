@@ -1,3 +1,5 @@
+import time
+
 import minimalmodbus
 
 
@@ -7,7 +9,8 @@ class RK6006:
         self.address = address
         self.instrument = minimalmodbus.Instrument(port=port, slaveaddress=address)
         self.instrument.serial.baudrate = baudrate
-        minimalmodbus.TIMEOUT = modbus_timeout
+        self.instrument.serial.timeout = modbus_timeout
+        self.instrument.clear_buffers_before_each_transaction = True
 
         regs = self._read_registers(0, 15)
 
@@ -19,10 +22,10 @@ class RK6006:
         self.power_resolution = 100
         self.in_volts_resolution = 100
         self.model = "RK6006"
-        self.max_set_voltage = round((regs[14] / self.in_volts_resolution)/1.1 - 1.5, 2)  # max possible output voltage
-        self.max_set_current = 6  # max possible output current for the module
-        self.max_ocp_current = 6.2  # max OverCurrent Protection current
-        self.registers_max_len = 120  # https://github.com/Baldanos/rd6006/blob/master/registers.md
+        self.max_set_voltage = round((regs[14] / self.in_volts_resolution) / 1.1 - 1.5, 2)
+        self.max_set_current = 6
+        self.max_ocp_current = 6.2
+        self.registers_max_len = 120
 
         if self.type != 60066:
             print("Detected Type: ", self.type)
@@ -33,19 +36,23 @@ class RK6006:
     def __repr__(self):
         return f"Model: {self.model}, SN:{self.sn}, FW:{self.fw}"
 
-    def _read_register(self, register):
-        try:
-            return self.instrument.read_register(register)
-        except minimalmodbus.NoResponseError:
-            return self._read_register(register)
+    def _read_register(self, register, retries=3):
+        for i in range(retries):
+            try:
+                return self.instrument.read_register(register)
+            except minimalmodbus.NoResponseError:
+                if i == retries - 1:
+                    raise
+                time.sleep(0.01)
 
-    def _read_registers(self, start, length):
-        try:
-            return self.instrument.read_registers(start, length)
-        except minimalmodbus.NoResponseError:
-            return self._read_registers(start, length)
-        except minimalmodbus.InvalidResponseError:
-            return self._read_registers(start, length)
+    def _read_registers(self, start, length, retries=3):
+        for i in range(retries):
+            try:
+                return self.instrument.read_registers(start, length)
+            except (minimalmodbus.NoResponseError, minimalmodbus.InvalidResponseError):
+                if i == retries - 1:
+                    raise
+                time.sleep(0.01)
 
     def _write_register(self, register, value):
         try:
